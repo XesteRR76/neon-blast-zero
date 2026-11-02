@@ -6,6 +6,47 @@ import { sound } from './audio';
 import { hapticLight, hapticSuccess } from './haptics';
 import confetti from 'canvas-confetti';
 
+/**
+ * Universal rounded rectangle path helper that works on 100% of Android WebViews
+ * without relying on experimental CanvasRenderingContext2D.prototype.roundRect.
+ */
+export function drawRoundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number | number[]
+) {
+  let tl = 0, tr = 0, br = 0, bl = 0;
+  if (Array.isArray(r)) {
+    tl = r[0] || 0;
+    tr = r[1] !== undefined ? r[1] : tl;
+    br = r[2] !== undefined ? r[2] : tl;
+    bl = r[3] !== undefined ? r[3] : tr;
+  } else if (typeof r === 'number') {
+    tl = tr = br = bl = r;
+  }
+
+  const maxR = Math.min(w, h) / 2;
+  tl = Math.max(0, Math.min(tl, maxR));
+  tr = Math.max(0, Math.min(tr, maxR));
+  br = Math.max(0, Math.min(br, maxR));
+  bl = Math.max(0, Math.min(bl, maxR));
+
+  ctx.beginPath();
+  ctx.moveTo(x + tl, y);
+  ctx.lineTo(x + w - tr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + tr);
+  ctx.lineTo(x + w, y + h - br);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - br, y + h);
+  ctx.lineTo(x + bl, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - bl);
+  ctx.lineTo(x, y + tl);
+  ctx.quadraticCurveTo(x, y, x + tl, y);
+  ctx.closePath();
+}
+
 export class GameEngine {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -52,6 +93,11 @@ export class GameEngine {
     this.initEvents();
     this.resize();
     this.startNewGame();
+
+    // Call resize on next tick to handle mobile WebView flex calculations
+    setTimeout(() => this.resize(), 50);
+    setTimeout(() => this.resize(), 200);
+
     this.loop = this.loop.bind(this);
     requestAnimationFrame(this.loop);
   }
@@ -77,41 +123,47 @@ export class GameEngine {
   }
 
   public resize() {
-    const dpr = window.devicePixelRatio || 1;
-    const width = this.canvas.parentElement?.clientWidth || window.innerWidth;
-    const height = this.canvas.parentElement?.clientHeight || window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const parent = this.canvas.parentElement;
+    let width = parent?.clientWidth || 0;
+    let height = parent?.clientHeight || 0;
 
-    this.canvas.width = width * dpr;
-    this.canvas.height = height * dpr;
+    if (width <= 0) width = window.innerWidth || 360;
+    if (height <= 0) height = window.innerHeight || 640;
+
+    this.canvas.width = Math.floor(width * dpr);
+    this.canvas.height = Math.floor(height * dpr);
     this.canvas.style.width = `${width}px`;
     this.canvas.style.height = `${height}px`;
 
-    this.ctx.resetTransform();
-    this.ctx.scale(dpr, dpr);
+    // Universal transform reset across all Android WebViews
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Compute grid dimensions to fit snugly in top 60% of viewport
-    const maxGridWidth = Math.min(width - 32, 420);
+    // Compute grid dimensions to fit snugly in viewport
+    const maxGridWidth = Math.min(width - 24, 420);
     this.cellSize = Math.floor(maxGridWidth / GRID_SIZE);
     const totalGridPx = this.cellSize * GRID_SIZE;
 
     this.gridOriginX = Math.floor((width - totalGridPx) / 2);
-    // Position grid with room for header
-    this.gridOriginY = Math.max(80, Math.floor((height - totalGridPx) * 0.32));
+    // Position grid comfortably below header
+    this.gridOriginY = Math.max(16, Math.floor((height - totalGridPx) * 0.28));
 
     // Position Tray below grid
-    const trayY = this.gridOriginY + totalGridPx + 35;
-    const slotWidth = Math.floor((width - 40) / 3);
-    const slotHeight = Math.min(130, height - trayY - 20);
+    const trayY = this.gridOriginY + totalGridPx + 24;
+    const slotWidth = Math.floor((width - 32) / 3);
+    const availableTrayHeight = height - trayY - 16;
+    const slotHeight = Math.max(80, Math.min(130, availableTrayHeight));
 
     this.traySlots = [
-      { x: 20 + slotWidth * 0, y: trayY, width: slotWidth, height: slotHeight },
-      { x: 20 + slotWidth * 1, y: trayY, width: slotWidth, height: slotHeight },
-      { x: 20 + slotWidth * 2, y: trayY, width: slotWidth, height: slotHeight }
+      { x: 16 + slotWidth * 0, y: trayY, width: slotWidth - 4, height: slotHeight },
+      { x: 16 + slotWidth * 1, y: trayY, width: slotWidth - 4, height: slotHeight },
+      { x: 16 + slotWidth * 2, y: trayY, width: slotWidth - 4, height: slotHeight }
     ];
   }
 
   private initEvents() {
     window.addEventListener('resize', () => this.resize());
+    window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 100));
 
     // Mouse / Touch Bindings
     const getPoint = (e: MouseEvent | TouchEvent) => {
@@ -181,15 +233,11 @@ export class GameEngine {
   }
 
   private getDropTarget(piece: ActivePiece): { row: number; col: number } | null {
-    // The piece is rendered with touchOffset above the finger
     const renderX = this.dragPos.x + this.touchOffset.x;
     const renderY = this.dragPos.y + this.touchOffset.y;
 
     const matrix = piece.shape.matrix;
-    const pRows = matrix.length;
-    const pCols = matrix[0].length;
 
-    // Find closest cell coordinate
     const col = Math.round((renderX - this.gridOriginX) / this.cellSize);
     const row = Math.round((renderY - this.gridOriginY) / this.cellSize);
 
@@ -206,12 +254,11 @@ export class GameEngine {
 
     const target = this.getDropTarget(piece);
     if (target) {
-      // Place piece on grid
       const result = this.grid.placePiece(
         piece,
         target.row,
         target.col,
-        this.comboStreak + (result => 0)(), // Will update below
+        this.comboStreak,
         this.cellSize,
         this.gridOriginX,
         this.gridOriginY
@@ -224,7 +271,7 @@ export class GameEngine {
         this.comboStreak = 0;
       }
 
-      // Check high score
+      // High Score update
       if (this.score > this.highScore) {
         const beatPrevious = this.highScore > 0 && this.score - result.pointsEarned <= this.highScore;
         this.highScore = this.score;
@@ -238,12 +285,11 @@ export class GameEngine {
       // Consume piece from tray
       this.tray[this.draggedIndex] = null;
 
-      // Check if tray is empty -> refill!
+      // Refill tray if all 3 are placed
       if (this.tray.every(p => p === null)) {
         this.tray = this.bag.generateTray(this.grid.getRawColorMatrix(), this.isOverdrive);
       }
 
-      // Check if remaining pieces can fit anywhere
       this.checkGameOver();
       this.notifyState();
     }
@@ -266,8 +312,12 @@ export class GameEngine {
 
   private loop() {
     if (!this.isRunning) return;
-    this.update();
-    this.render();
+    try {
+      this.update();
+      this.render();
+    } catch (err) {
+      console.error('Render error:', err);
+    }
     requestAnimationFrame(this.loop);
   }
 
@@ -276,8 +326,9 @@ export class GameEngine {
   }
 
   private render() {
-    const width = this.canvas.width / (window.devicePixelRatio || 1);
-    const height = this.canvas.height / (window.devicePixelRatio || 1);
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const width = this.canvas.width / dpr;
+    const height = this.canvas.height / dpr;
 
     // Apply Screen Shake
     const shake = this.effects.getScreenOffset();
@@ -336,8 +387,7 @@ export class GameEngine {
     this.ctx.fillStyle = '#080811';
     this.ctx.strokeStyle = '#1a1a2e';
     this.ctx.lineWidth = 2;
-    this.ctx.beginPath();
-    this.ctx.roundRect(this.gridOriginX - 6, this.gridOriginY - 6, totalPx + 12, totalPx + 12, 14);
+    drawRoundRect(this.ctx, this.gridOriginX - 6, this.gridOriginY - 6, totalPx + 12, totalPx + 12, 14);
     this.ctx.fill();
     this.ctx.stroke();
     this.ctx.restore();
@@ -355,8 +405,7 @@ export class GameEngine {
           // Empty slot placeholder
           this.ctx.save();
           this.ctx.fillStyle = '#10101f';
-          this.ctx.beginPath();
-          this.ctx.roundRect(cellX + 2, cellY + 2, this.cellSize - 4, this.cellSize - 4, 6);
+          drawRoundRect(this.ctx, cellX + 2, cellY + 2, this.cellSize - 4, this.cellSize - 4, 6);
           this.ctx.fill();
           this.ctx.restore();
         }
@@ -393,14 +442,12 @@ export class GameEngine {
       this.ctx.fillStyle = '#0b0b14';
       this.ctx.strokeStyle = '#161626';
       this.ctx.lineWidth = 1.5;
-      this.ctx.beginPath();
-      this.ctx.roundRect(slot.x, slot.y, slot.width, slot.height, 12);
+      drawRoundRect(this.ctx, slot.x, slot.y, slot.width, slot.height, 12);
       this.ctx.fill();
       this.ctx.stroke();
       this.ctx.restore();
 
       if (piece && this.draggedIndex !== i) {
-        // Can this piece fit anywhere? If not, dim it to warn player!
         const canFit = this.bag.canFitAnywhere(piece.shape.matrix, matrixGrid);
         const matrix = piece.shape.matrix;
         const pRows = matrix.length;
@@ -467,8 +514,7 @@ export class GameEngine {
     grad.addColorStop(1, color.primary);
 
     this.ctx.fillStyle = grad;
-    this.ctx.beginPath();
-    this.ctx.roundRect(x + pad, y + pad, innerSize, innerSize, radius);
+    drawRoundRect(this.ctx, x + pad, y + pad, innerSize, innerSize, radius);
     this.ctx.fill();
 
     // Inner Specular Highlight (Glass Reflection)
@@ -476,8 +522,7 @@ export class GameEngine {
       this.ctx.shadowBlur = 0;
       this.ctx.fillStyle = color.highlight;
       this.ctx.globalAlpha = 0.45;
-      this.ctx.beginPath();
-      this.ctx.roundRect(x + pad + 2, y + pad + 2, innerSize - 4, innerSize * 0.35, [radius, radius, 1, 1]);
+      drawRoundRect(this.ctx, x + pad + 2, y + pad + 2, innerSize - 4, innerSize * 0.35, [radius, radius, 1, 1]);
       this.ctx.fill();
     }
 
