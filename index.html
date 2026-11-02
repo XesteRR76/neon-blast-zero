@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#050508" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Neon Blast Zero</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Top Bar -->
+      <header class="game-header">
+        <div class="score-panel">
+          <span class="score-title">Score</span>
+          <span class="score-value" id="scoreVal">0</span>
+          <div class="high-score-badge">
+            <span>👑</span>
+            <span id="highScoreVal">0</span>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <button class="mode-toggle" id="modeBtn" title="Switch Mode">
+            <span>ZEN</span>
+          </button>
+          <button class="icon-btn" id="audioBtn" title="Toggle Sound">
+            🔊
+          </button>
+          <button class="icon-btn" id="resetBtn" title="Restart Game">
+            ↺
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Game Viewport -->
+      <main class="canvas-wrapper">
+        <div class="streak-pill" id="streakPill">
+          COMBO x2
+        </div>
+        <canvas id="gameCanvas"></canvas>
+      </main>
+
+      <!-- Footer Badge -->
+      <footer class="footer-badge">
+        100% Offline • Zero Ads • Pure Skill
+      </footer>
+
+      <!-- Game Over Modal -->
+      <div class="modal-backdrop" id="gameOverModal">
+        <div class="modal-card">
+          <h2 class="modal-title">GAME OVER</h2>
+          <div class="modal-score-label">Final Score</div>
+          <div class="modal-score-value" id="finalScoreVal">0</div>
+          <div class="modal-new-best" id="newBestBadge" style="display: none;">🏆 NEW HIGH SCORE!</div>
+          <div class="high-score-badge" style="justify-content: center; margin-bottom: 20px;">
+            <span>Best:</span>
+            <span id="modalBestVal">0</span>
+          </div>
+          <button class="btn-restart" id="modalRestartBtn">
+            PLAY AGAIN
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
